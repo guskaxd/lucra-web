@@ -1,3 +1,5 @@
+//MONGO_URI=mongodb+srv://guskaxdev1:uQ82dtH9dUYnR7iK@lucra-bet.0y6bpai.mongodb.net/?retryWrites=true&w=majority&appName=lucra-bet
+
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const path = require('path');
@@ -100,7 +102,7 @@ app.post('/api/users', async (req, res) => {
             whatsapp: whatsapp,
             registeredAt: new Date(),
             paymentHistory: [],
-            indication: 'manual'
+            indication:  null
         });
 
         // Se uma data de expiração foi fornecida, criar a assinatura
@@ -121,76 +123,76 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
+// Em server.js, substitua esta rota
 app.get('/users', async (req, res) => {
     try {
         db = await ensureDBConnection();
         const users = await db.collection('registeredUsers').find().toArray();
+        const expirationDatesCollection = db.collection('expirationDates');
         
         const today = new Date();
-        today.setUTCHours(0, 0, 0, 0); 
+        const todayUTCStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
 
-        const usersData = await Promise.all(users.map(async (user) => {
-            const paymentHistory = user.paymentHistory || [];
-            const userIdAsString = String(user.userId);
-            const expirationDoc = await db.collection('expirationDates').findOne({ userId: userIdAsString });
-            
-            // --- INÍCIO DA MUDANÇA ---
-            let lastPaymentDate = null;
-            let lastPaymentAmount = 0; // Nova variável para o valor
-
-            if (paymentHistory.length > 0) {
-                const sortedHistory = [...paymentHistory].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                const lastPayment = sortedHistory[0]; // Pega o objeto de pagamento inteiro
-                lastPaymentDate = lastPayment.timestamp;
-                lastPaymentAmount = lastPayment.amount; // Armazena o valor
+        let totalRevenue = 0;
+        let paidInvoicesCount = 0;
+        users.forEach(user => {
+            if (user.paymentHistory && Array.isArray(user.paymentHistory)) {
+                paidInvoicesCount += user.paymentHistory.length;
+                user.paymentHistory.forEach(payment => {
+                    totalRevenue += parseFloat(payment.amount) || 0;
+                });
             }
-            // --- FIM DA MUDANÇA ---
+        });
+        const averagePaymentValue = paidInvoicesCount > 0 ? totalRevenue / paidInvoicesCount : 0;
+        
+        const usersData = await Promise.all(users.map(async (user) => {
+            const userIdAsString = String(user.userId);
+            const expirationDoc = await expirationDatesCollection.findOne({ userId: userIdAsString });
+            
+            let lastPaymentDate = null;
+            let lastPaymentAmount = 0;
+            if (user.paymentHistory && user.paymentHistory.length > 0) {
+                const lastPayment = user.paymentHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                lastPaymentDate = lastPayment.timestamp;
+                lastPaymentAmount = lastPayment.amount;
+            }
 
             let daysRemaining = 0;
             let daysInactive = 0;
 
             if (expirationDoc && expirationDoc.expirationDate) {
                 const expirationDate = new Date(expirationDoc.expirationDate);
-                expirationDate.setUTCHours(0, 0, 0, 0);
+                const expirationDateUTCStart = new Date(Date.UTC(expirationDate.getUTCFullYear(), expirationDate.getUTCMonth(), expirationDate.getUTCDate()));
 
-                if (expirationDate >= today) {
-                    const diffTime = expirationDate.getTime() - today.getTime();
+                if (expirationDateUTCStart >= todayUTCStart) {
+                    const diffTime = expirationDateUTCStart.getTime() - todayUTCStart.getTime();
                     daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 } else {
-                    const diffTime = today.getTime() - expirationDate.getTime();
+                    const diffTime = todayUTCStart.getTime() - expirationDateUTCStart.getTime();
                     daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                 }
             } else {
                 const registeredDate = new Date(user.registeredAt);
-                registeredDate.setUTCHours(0, 0, 0, 0);
-                const diffTime = today.getTime() - registeredDate.getTime();
+                const registeredDateUTCStart = new Date(Date.UTC(registeredDate.getUTCFullYear(), registeredDate.getUTCMonth(), registeredDate.getUTCDate()));
+                const diffTime = todayUTCStart.getTime() - registeredDateUTCStart.getTime();
                 daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             }
 
             return {
-                userId: user.userId,
-                name: user.name,
-                whatsapp: user.whatsapp,
-                registeredAt: user.registeredAt,
-                balance: user.balance || 0, 
-                discount: user.discount || 0 ,
+                userId: user.userId, name: user.name, whatsapp: user.whatsapp, registeredAt: user.registeredAt,
+                balance: user.balance || 0, discount: user.discount || 0,
                 expirationDate: expirationDoc ? expirationDoc.expirationDate : null,
                 indication: user.indication || null,
-                daysRemaining: daysRemaining,
-                daysInactive: daysInactive,
-                lastPaymentDate: lastPaymentDate,
-                lastPaymentAmount: lastPaymentAmount
+                daysRemaining: daysRemaining, daysInactive: daysInactive,
+                lastPaymentDate: lastPaymentDate, lastPaymentAmount: lastPaymentAmount
             };
         }));
 
-        const totalBalanceFromHistory = users.reduce((sum, user) => {
-            const paymentHistory = user.paymentHistory || [];
-            return sum + paymentHistory.reduce((total, payment) => total + (parseFloat(payment.amount) || 0), 0);
-        }, 0);
-
         res.json({
             users: usersData,
-            totalBalanceFromHistory: totalBalanceFromHistory.toFixed(2)
+            totalBalanceFromHistory: totalRevenue.toFixed(2),
+            paidInvoicesCount: paidInvoicesCount,
+            averagePaymentValue: averagePaymentValue.toFixed(2)
         });
     } catch (err) {
         console.error('Erro na rota /users:', err.message);
@@ -215,7 +217,7 @@ app.get('/user/:userId', async (req, res) => {
             name: user.name,
             whatsapp: user.whatsapp,
             paymentHistory: paymentHistory,
-            balance: 0,
+            balance: user.balance || 0,
             expirationDate: expirationDoc.expirationDate,
             indication: user.indication || null
         });
@@ -233,46 +235,37 @@ app.put('/user/:userId', async (req, res) => {
         console.log(`Rota PUT /user/${req.params.userId} acessada`);
         db = await ensureDBConnection();
         const userId = String(req.params.userId).trim();
-        const { name, balance, expirationDate, indication, discount } = req.body;
-        console.log('Dados recebidos:', { name, balance, expirationDate, indication });
+        const { name, whatsapp, balance, expirationDate, indication, discount } = req.body;
 
         const updates = {};
         if (name !== undefined) updates.name = name;
-        if (indication !== undefined) updates.indication = indication || 'Nenhuma';
-        
-        // --- NOVA LÓGICA PARA ATUALIZAR O SALDO ---
+        if (whatsapp !== undefined) updates.whatsapp = whatsapp; 
+        if (indication !== undefined) updates.indication = indication || 'Nenhum';
         if (balance !== undefined) {
             const parsedBalance = parseFloat(balance);
-            if (!isNaN(parsedBalance)) {
-                updates.balance = parsedBalance;
-            }
+            if (!isNaN(parsedBalance)) updates.balance = parsedBalance;
         }
-        // --- FIM DA NOVA LÓGICA ---
-
-        // --- NOVA LÓGICA PARA ATUALIZAR O DESCONTO ---
         if (discount !== undefined) {
             const parsedDiscount = parseFloat(discount);
             if (!isNaN(parsedDiscount)) updates.discount = parsedDiscount;
         }
-        // --- FIM DA NOVA LÓGICA ---
 
         if (Object.keys(updates).length > 0) {
-            console.log(`Atualizando registeredUsers para ${userId} com:`, updates);
             await db.collection('registeredUsers').updateOne({ userId: userId }, { $set: updates });
         }
 
         if (expirationDate !== undefined) {
-            // ... (o resto da lógica de expiração continua igual)
             if (expirationDate === null || expirationDate === '') {
                 await db.collection('expirationDates').deleteOne({ userId: userId });
             } else {
-                const parsedExpirationDate = new Date(expirationDate);
+                const parsedExpirationDate = new Date(expirationDate + 'T00:00:00'); // <-- CORREÇÃO AQUI
                 if (isNaN(parsedExpirationDate.getTime())) {
                     return res.status(400).json({ error: 'Data de expiração inválida' });
                 }
+
                 await db.collection('expirationDates').updateOne(
                     { userId: userId },
-                    { $set: { expirationDate: parsedExpirationDate.toISOString() } },
+                    { $set: { expirationDate: parsedExpirationDate } }, // Salva a data correta
                     { upsert: true }
                 );
             }
@@ -281,44 +274,6 @@ app.put('/user/:userId', async (req, res) => {
     } catch (err) {
         console.error('Erro na rota PUT /user/:userId:', err.message, err.stack);
         res.status(500).json({ error: 'Erro ao atualizar dados', details: err.message });
-    }
-});
-
-// Rota para deletar/cancelar assinatura de um usuário
-app.delete('/user/:userId', async (req, res) => {
-    try {
-        console.log(`Rota DELETE /user/${req.params.userId} acessada`);
-        db = await ensureDBConnection();
-        const userId = req.params.userId.toString().trim();
-
-        if (!userId) {
-            console.error('Erro: userId inválido ou vazio');
-            return res.status(400).json({ error: 'ID do usuário inválido ou vazio' });
-        }
-
-        // Verificar se o usuário existe em registeredUsers
-        const userDoc = await db.collection('registeredUsers').findOne({ userId });
-        if (!userDoc) {
-            console.warn(`Usuário com userId ${userId} não encontrado em registeredUsers`);
-            return res.status(404).json({ error: 'Usuário não encontrado' });
-        }
-
-        console.log(`Cancelando assinatura do usuário ${userId}`);
-
-        // Deletar apenas o documento de expirationDates
-        const result = await db.collection('expirationDates').deleteOne({ userId });
-        console.log('Resultado da exclusão de expirationDates:', { deletedCount: result.deletedCount });
-
-        if (result.deletedCount === 0) {
-            console.warn(`Nenhum documento encontrado para userId ${userId} em expirationDates`);
-            return res.status(404).json({ message: 'Nenhuma assinatura encontrada para cancelar' });
-        }
-
-        res.setHeader('Content-Type', 'application/json');
-        res.json({ message: 'Assinatura cancelada com sucesso', deletedCount: result.deletedCount });
-    } catch (err) {
-        console.error('Erro na rota DELETE /user/:userId:', err.message, err.stack);
-        res.status(500).json({ error: 'Erro ao cancelar assinatura', details: err.message });
     }
 });
 
@@ -368,7 +323,82 @@ app.delete('/user/:userId/all', async (req, res) => {
         res.status(500).json({ error: 'Erro ao excluir todos os dados', details: err.message });
     }
 });
+// Adicione esta nova rota em seu server.js
 
+app.get('/api/charts-data', async (req, res) => {
+    try {
+        db = await ensureDBConnection();
+        const usersCollection = db.collection('registeredUsers');
+
+        // --- DADOS PARA O GRÁFICO DE ASSINATURAS PAGAS (ÚLTIMOS 30 DIAS) ---
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const dailyPayments = await usersCollection.aggregate([
+            { $unwind: '$paymentHistory' },
+            { $match: { 'paymentHistory.timestamp': { $gte: thirtyDaysAgo } } },
+            { 
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$paymentHistory.timestamp' } },
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]).toArray();
+
+        // Preencher dias sem pagamento com 0
+        const paymentsMap = new Map(dailyPayments.map(item => [item._id, item.count]));
+        const last30DaysLabels = [];
+        const last30DaysData = [];
+        for (let i = 29; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateString = date.toISOString().split('T')[0];
+            const label = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+            
+            last30DaysLabels.push(label);
+            last30DaysData.push(paymentsMap.get(dateString) || 0);
+        }
+
+        // --- DADOS PARA O GRÁFICO DE FATURAMENTO MENSAL (ÚLTIMOS 6 MESES) ---
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        
+        const monthlyRevenue = await usersCollection.aggregate([
+            { $unwind: '$paymentHistory' },
+            { $match: { 'paymentHistory.timestamp': { $gte: sixMonthsAgo } } },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m', date: '$paymentHistory.timestamp' } },
+                    total: { $sum: '$paymentHistory.amount' }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]).toArray();
+
+        const revenueLabels = monthlyRevenue.map(item => {
+            const [year, month] = item._id.split('-');
+            return new Date(year, month - 1, 1).toLocaleString('pt-BR', { month: 'short' }) + `/${year.slice(2)}`;
+        });
+        const revenueData = monthlyRevenue.map(item => item.total);
+
+        // --- Resposta da API ---
+        res.json({
+            dailyPayments: {
+                labels: last30DaysLabels,
+                data: last30DaysData,
+            },
+            monthlyRevenue: {
+                labels: revenueLabels,
+                data: revenueData,
+            }
+        });
+
+    } catch (err) {
+        console.error('Erro na rota /api/charts-data:', err.message);
+        res.status(500).json({ error: 'Erro ao buscar dados para os gráficos.' });
+    }
+});
 // Rota para login
 app.post('/login', (req, res) => {
     console.log('Rota /login acessada');
