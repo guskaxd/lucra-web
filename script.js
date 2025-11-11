@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usersTable.style.display = 'none';
     
         // O resto da sua função fetch continua igual
-        fetch('https://lucrabet.discloud.app/users', {
+        fetch('https://lucra-bet.up.railway.app/users', {
             credentials: 'include',
             mode: 'cors'
         })
@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usersTable.style.display = 'table';
         
         // O resto da sua função fetch continua igual
-        fetch('https://lucrabet.discloud.app/users', {
+        fetch('https://lucra-bet.up.railway.app/users', {
             credentials: 'include',
             mode: 'cors'
         })
@@ -269,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usersHeaderControls.style.display = 'flex'; // <-- LINHA ADICIONADA
         searchContainer.style.display = 'block';
         usersTable.style.display = 'table';
-        fetch('https://lucrabet.discloud.app/users', {
+        fetch('https://lucra-bet.up.railway.app/users', {
             credentials: 'include',
             mode: 'cors'
         })
@@ -325,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Adicione esta nova função ao seu script.js
     async function loadChartData() {
         try {
-            const response = await fetch('https://lucrabet.discloud.app/api/charts-data', { credentials: 'include', mode: 'cors' });
+            const response = await fetch('https://lucra-bet.up.railway.app/api/charts-data', { credentials: 'include', mode: 'cors' });
             if (!response.ok) {
                 throw new Error('Falha ao buscar dados dos gráficos');
             }
@@ -425,7 +425,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usersHeaderControls.style.display = 'flex'; // <-- LINHA ADICIONADA
         searchContainer.style.display = 'block';
         usersTable.style.display = 'table'
-        fetch('https://lucrabet.discloud.app/users', {
+        fetch('https://lucra-bet.up.railway.app/users', {
             credentials: 'include',
             mode: 'cors'
         })
@@ -779,7 +779,7 @@ if (saveChangesBtn) {
         const requestBody = { name, whatsapp,balance, discount, expirationDate, indication }; // Adiciona o desconto no corpo da requisição
 
         console.log('Enviando requisição PUT com:', requestBody);
-        fetch(`https://lucrabet.discloud.app/user/${currentUserId}`, {
+        fetch(`https://lucra-bet.up.railway.app/user/${currentUserId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -844,7 +844,7 @@ function showError(message) {
 
 function handleLogout() {
     console.log('Logout solicitado');
-    fetch('https://lucrabet.discloud.app/logout', {
+    fetch('https://lucra-bet.up.railway.app/logout', {
         method: 'POST',
         credentials: 'include',
         mode: 'cors'
@@ -1011,7 +1011,7 @@ function handleDeleteAll() {
         console.log('Exclusão cancelada pelo usuário');
         return;
     }
-    fetch(`https://lucrabet.discloud.app/user/${currentUserId}/all`, {
+    fetch(`https://lucra-bet.up.railway.app/user/${currentUserId}/all`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
